@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { Search, Loader2, ShieldAlert, Server, Activity, Globe, ChevronRight, Sparkles, List, History, X, Clock, Calendar, Info, Filter, Languages } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Search, Loader2, ShieldAlert, Server, Activity, Globe, ChevronRight, Sparkles, List, History, X, Clock, Calendar, Info, Filter, Languages, Terminal } from 'lucide-react';
 import { GoogleGenAI } from '@google/genai';
 import Markdown from 'react-markdown';
 import { motion, AnimatePresence } from 'motion/react';
@@ -45,6 +45,42 @@ export default function Page() {
   const [showHistory, setShowHistory] = useState(false);
   const [filterText, setFilterText] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
+  const [terminalLines, setTerminalLines] = useState<string[]>([]);
+  const terminalEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isScanning && !isAnalyzing) return;
+
+    const randomLines = [
+      `[*] Bypassing WAF...`,
+      `[*] Injecting payloads...`,
+      `[+] Enumerating DNS records...`,
+      `[*] Checking zone transfers...`,
+      `[+] Parsing certificate transparency logs...`,
+      `[*] Querying WayBackMachine...`,
+      `[!] Rate limit detected, sleeping for 200ms...`,
+      `[*] Brute-forcing common subdomains...`,
+      `[+] Found wildcard record...`,
+      `[*] Resolving CNAMEs...`,
+      `[*] Analyzing HTTP headers...`,
+      `[+] Extracting metadata...`
+    ];
+
+    const interval = setInterval(() => {
+      if (Math.random() > 0.6) {
+        const randomLine = randomLines[Math.floor(Math.random() * randomLines.length)];
+        setTerminalLines(prev => [...prev, randomLine].slice(-100));
+      }
+    }, 600);
+
+    return () => clearInterval(interval);
+  }, [isScanning, isAnalyzing]);
+
+  useEffect(() => {
+    if (isScanning || isAnalyzing) {
+      terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [terminalLines, isScanning, isAnalyzing]);
 
   const filteredSubdomains = useMemo(() => {
     return subdomains.filter(sub => {
@@ -129,6 +165,7 @@ export default function Page() {
     setFilterText('');
     setFilterStatus('all');
     setIsScanning(true);
+    setTerminalLines([`root@kali:~# subfinder -d ${domain} -all`, `[*] Initializing engine...`, `[*] Fetching from crt.sh...`]);
 
     let whoisData: WhoisInfo | null = null;
 
@@ -180,6 +217,17 @@ export default function Page() {
                   // Ensure no duplicates in state just in case
                   const existingHosts = new Set(prev.map(s => s.host));
                   const newUnique = data.subdomains.filter((s: SubdomainItem) => !existingHosts.has(s.host));
+                  
+                  if (newUnique.length > 0) {
+                    setTerminalLines(lines => {
+                      const newLines = [...lines];
+                      newUnique.forEach((s: SubdomainItem) => {
+                        newLines.push(`[+] Discovered: ${s.host} ${s.ip ? `[${s.ip}]` : ''}`);
+                      });
+                      return newLines.slice(-100);
+                    });
+                  }
+
                   return [...prev, ...newUnique];
                 });
               }
@@ -201,12 +249,14 @@ export default function Page() {
       }
 
       if (mode === 'standard') {
+        setTerminalLines(prev => [...prev, `[*] Scan complete. Found ${foundSubdomains.length} subdomains.`].slice(-100));
         saveHistory(foundSubdomains, undefined, whoisData || undefined);
         return;
       }
 
       // 2. Analyze with AI
       setIsAnalyzing(true);
+      setTerminalLines(prev => [...prev, `[*] Scan complete. Found ${foundSubdomains.length} subdomains.`, `[*] Initiating Gemini AI analysis module...`, `[*] Streaming data to AI...`].slice(-100));
       
       const ai = new GoogleGenAI({ apiKey: process.env.NEXT_PUBLIC_GEMINI_API_KEY });
       
@@ -317,34 +367,34 @@ IMPORTANT: You MUST write your entire response in ${language}.
           </div>
         </form>
 
-        {/* Progress Indicator */}
+        {/* Terminal Progress Indicator */}
         <AnimatePresence>
-          {isScanning && (
+          {(isScanning || isAnalyzing) && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
-              className="flex flex-col gap-2 overflow-hidden px-2"
+              className="w-full max-w-2xl mx-auto overflow-hidden"
             >
-              <div className="flex items-center justify-between text-sm text-emerald-400 font-mono">
-                <span className="flex items-center gap-2">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Scanning crt.sh logs...
-                </span>
-                <span>{subdomains.length} found</span>
-              </div>
-              <div className="h-1 w-full bg-white/10 rounded-full overflow-hidden relative">
-                <motion.div
-                  className="absolute top-0 left-0 h-full bg-emerald-500 w-1/3 rounded-full"
-                  animate={{
-                    x: ['-100%', '300%'],
-                  }}
-                  transition={{
-                    repeat: Infinity,
-                    duration: 1.5,
-                    ease: 'linear',
-                  }}
-                />
+              <div className="bg-[#0a0a0a] border border-white/10 rounded-xl p-4 font-mono text-xs sm:text-sm text-emerald-500 h-48 overflow-y-auto custom-scrollbar shadow-2xl flex flex-col">
+                <div className="flex items-center justify-between mb-3 sticky top-0 bg-[#0a0a0a] pb-2 border-b border-white/10 z-10">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full bg-red-500/80"></div>
+                    <div className="w-3 h-3 rounded-full bg-yellow-500/80"></div>
+                    <div className="w-3 h-3 rounded-full bg-green-500/80"></div>
+                    <span className="ml-2 text-gray-500 flex items-center gap-1"><Terminal className="w-3 h-3"/> root@kali:~</span>
+                  </div>
+                  <span className="text-gray-500 text-xs">{subdomains.length} found</span>
+                </div>
+                <div className="flex-1 flex flex-col gap-1">
+                  {terminalLines.map((line, i) => (
+                    <div key={i} className={`${line.startsWith('[!]') ? 'text-red-400' : line.startsWith('[+]') ? 'text-emerald-400' : 'text-gray-400'}`}>
+                      {line}
+                    </div>
+                  ))}
+                  <div className="animate-pulse text-emerald-500">_</div>
+                  <div ref={terminalEndRef} />
+                </div>
               </div>
             </motion.div>
           )}
