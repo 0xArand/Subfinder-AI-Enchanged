@@ -28,6 +28,7 @@ interface ScanHistory {
   subdomains: SubdomainItem[];
   analysis?: string;
   whois?: WhoisInfo;
+  notes?: string;
 }
 
 export default function Page() {
@@ -100,6 +101,14 @@ export default function Page() {
     setWhois(item.whois || null);
     setError('');
     setShowHistory(false);
+  };
+
+  const updateHistoryNote = (id: string, notes: string) => {
+    setHistory(prev => {
+      const updated = prev.map(item => item.id === id ? { ...item, notes } : item);
+      localStorage.setItem('subfinder_history', JSON.stringify(updated));
+      return updated;
+    });
   };
 
   const handleScan = async (e: React.FormEvent) => {
@@ -479,9 +488,12 @@ IMPORTANT: You MUST write your entire response in ${language}.
                     </div>
                   ) : (
                     filteredSubdomains.map((sub, idx) => (
-                      <div
+                      <a
                         key={idx}
-                        className="px-3 py-2 text-sm font-mono text-gray-300 hover:bg-white/5 hover:text-white rounded-lg transition-colors flex flex-col gap-1 group cursor-default border border-transparent hover:border-white/5"
+                        href={`http://${sub.host}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3 py-2 text-sm font-mono text-gray-300 hover:bg-white/5 hover:text-white rounded-lg transition-colors flex flex-col gap-1 group cursor-pointer border border-transparent hover:border-white/5"
                       >
                         <div className="flex items-center gap-2">
                           <ChevronRight className="w-3 h-3 text-gray-600 group-hover:text-emerald-400 transition-colors shrink-0" />
@@ -500,7 +512,7 @@ IMPORTANT: You MUST write your entire response in ${language}.
                             )}
                           </div>
                         )}
-                      </div>
+                      </a>
                     ))
                   )}
                 </div>
@@ -571,24 +583,34 @@ IMPORTANT: You MUST write your entire response in ${language}.
                   <div className="text-center text-gray-500 py-8">No scan history found.</div>
                 ) : (
                   history.map(item => (
-                    <div
-                      key={item.id}
-                      onClick={() => loadHistoryItem(item)}
-                      className="p-4 rounded-xl border border-white/5 bg-white/5 hover:bg-white/10 transition-colors cursor-pointer flex items-center justify-between group"
-                    >
-                      <div className="flex flex-col gap-1">
-                        <div className="font-mono text-white font-medium flex items-center gap-2">
-                          {item.domain}
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider ${item.mode === 'ai' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/10 text-gray-300'}`}>
-                            {item.mode}
-                          </span>
+                    <div key={item.id} className="rounded-xl border border-white/5 bg-white/5 overflow-hidden flex flex-col">
+                      <div
+                        onClick={() => loadHistoryItem(item)}
+                        className="p-4 hover:bg-white/10 transition-colors cursor-pointer flex items-center justify-between group"
+                      >
+                        <div className="flex flex-col gap-1">
+                          <div className="font-mono text-white font-medium flex items-center gap-2">
+                            {item.domain}
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider ${item.mode === 'ai' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/10 text-gray-300'}`}>
+                              {item.mode}
+                            </span>
+                          </div>
+                          <div className="text-xs text-gray-500 flex items-center gap-3">
+                            <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {new Date(item.date).toLocaleString()}</span>
+                            <span className="flex items-center gap-1"><Server className="w-3 h-3" /> {item.count} subdomains</span>
+                          </div>
                         </div>
-                        <div className="text-xs text-gray-500 flex items-center gap-3">
-                          <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> {new Date(item.date).toLocaleString()}</span>
-                          <span className="flex items-center gap-1"><Server className="w-3 h-3" /> {item.count} subdomains</span>
-                        </div>
+                        <ChevronRight className="w-5 h-5 text-gray-600 group-hover:text-emerald-400 transition-colors" />
                       </div>
-                      <ChevronRight className="w-5 h-5 text-gray-600 group-hover:text-emerald-400 transition-colors" />
+                      <div className="px-4 pb-4 pt-0 bg-transparent" onClick={e => e.stopPropagation()}>
+                        <textarea
+                          value={item.notes || ''}
+                          onChange={(e) => updateHistoryNote(item.id, e.target.value)}
+                          placeholder="Add notes for this scan..."
+                          className="w-full bg-black/50 border border-white/10 rounded-lg p-2 text-sm text-gray-300 outline-none focus:border-emerald-500/50 transition-colors resize-none custom-scrollbar"
+                          rows={2}
+                        />
+                      </div>
                     </div>
                   ))
                 )}
