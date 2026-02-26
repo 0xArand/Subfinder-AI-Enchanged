@@ -13,7 +13,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Subfinder AI',
+  title: 'Subfinder AI By ARNDOZ ',
   description: 'Subdomain discovery with AI analytics',
 };
 

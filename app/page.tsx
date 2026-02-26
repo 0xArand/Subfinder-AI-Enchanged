@@ -46,7 +46,9 @@ export default function Page() {
   const [filterText, setFilterText] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [terminalLines, setTerminalLines] = useState<string[]>([]);
+  const [bytesReceived, setBytesReceived] = useState(0);
   const terminalEndRef = useRef<HTMLDivElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (!isScanning && !isAnalyzing) return;
@@ -147,6 +149,12 @@ export default function Page() {
     });
   };
 
+  const handleStop = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+  };
+
   const handleScan = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!domain) return;
@@ -165,13 +173,17 @@ export default function Page() {
     setFilterText('');
     setFilterStatus('all');
     setIsScanning(true);
-    setTerminalLines([`root@kali:~# subfinder -d ${domain} -all`, `[*] Initializing engine...`, `[*] Fetching from crt.sh...`]);
+    setBytesReceived(0);
+    setTerminalLines([`root@kali:~# subfinder -d ${domain} -all`, `[*] Initializing engine...`, `[*] Fetching from Github...`]);
 
     let whoisData: WhoisInfo | null = null;
+    let foundSubdomains: SubdomainItem[] = [];
+
+    abortControllerRef.current = new AbortController();
 
     try {
       // 0. Fetch WHOIS in background
-      fetch(`/api/whois?domain=${encodeURIComponent(domain)}`)
+      fetch(`/api/whois?domain=${encodeURIComponent(domain)}`, { signal: abortControllerRef.current.signal })
         .then(res => res.json())
         .then(data => {
           if (data && data.whois) {
@@ -179,10 +191,14 @@ export default function Page() {
             setWhois(data.whois);
           }
         })
-        .catch(err => console.error("Failed to fetch WHOIS", err));
+        .catch(err => {
+          if (err.name !== 'AbortError') console.error("Failed to fetch WHOIS", err);
+        });
 
       // 1. Fetch subdomains via SSE
-      const res = await fetch(`/api/subdomains?domain=${encodeURIComponent(domain)}`);
+      const res = await fetch(`/api/subdomains?domain=${encodeURIComponent(domain)}`, {
+        signal: abortControllerRef.current.signal
+      });
       
       if (!res.ok) {
         throw new Error('Failed to start scan');
@@ -192,12 +208,15 @@ export default function Page() {
       if (!reader) throw new Error('Failed to read response');
 
       const decoder = new TextDecoder();
-      let foundSubdomains: SubdomainItem[] = [];
       let isDone = false;
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+
+        if (value) {
+          setBytesReceived(prev => prev + value.length);
+        }
 
         const chunk = decoder.decode(value, { stream: true });
         const lines = chunk.split('\n');
@@ -294,11 +313,19 @@ IMPORTANT: You MUST write your entire response in ${language}.
       saveHistory(foundSubdomains, fullAnalysis, whoisData || undefined);
 
     } catch (err: any) {
+      if (err.name === 'AbortError') {
+        setTerminalLines(prev => [...prev, `[!] Scan aborted by user.`].slice(-100));
+        if (foundSubdomains.length > 0) {
+          saveHistory(foundSubdomains, undefined, whoisData || undefined);
+        }
+        return;
+      }
       console.error(err);
       setError(err.message || 'An error occurred during the scan.');
     } finally {
       setIsScanning(false);
       setIsAnalyzing(false);
+      abortControllerRef.current = null;
     }
   };
 
@@ -319,7 +346,7 @@ IMPORTANT: You MUST write your entire response in ${language}.
           <Activity className="w-8 h-8 text-emerald-400" />
         </div>
         <h1 className="text-4xl md:text-5xl font-bold tracking-tight">
-          Subfinder <span className="text-emerald-400">AI</span>
+          Subfinder AI By <span className="text-emerald-400">ARNDOZ</span>
         </h1>
         <p className="text-gray-400 max-w-2xl text-lg">
           Discover subdomains and instantly analyze infrastructure patterns, security posture, and exposed environments using Gemini AI.
@@ -342,28 +369,34 @@ IMPORTANT: You MUST write your entire response in ${language}.
               className="flex-1 bg-transparent border-none outline-none text-white placeholder:text-gray-600 px-2 py-3 text-lg font-mono"
               disabled={isScanning || isAnalyzing}
             />
-            <button
-              type="submit"
-              disabled={isScanning || isAnalyzing || !domain}
-              className="bg-emerald-500 hover:bg-emerald-400 text-black font-semibold px-6 py-3 rounded-full transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isScanning ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  Scanning
-                </>
-              ) : isAnalyzing ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  Analyzing
-                </>
-              ) : (
-                <>
-                  <Search className="w-5 h-5" />
-                  {mode === 'ai' ? 'Analyze' : 'Search'}
-                </>
-              )}
-            </button>
+            {isScanning ? (
+              <button
+                type="button"
+                onClick={handleStop}
+                className="bg-red-500 hover:bg-red-400 text-black font-semibold px-6 py-3 rounded-full transition-colors flex items-center gap-2"
+              >
+                <X className="w-5 h-5" />
+                Stop
+              </button>
+            ) : isAnalyzing ? (
+              <button
+                type="button"
+                disabled
+                className="bg-emerald-500 hover:bg-emerald-400 text-black font-semibold px-6 py-3 rounded-full transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Loader2 className="w-5 h-5 animate-spin" />
+                Analyzing
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={!domain}
+                className="bg-emerald-500 hover:bg-emerald-400 text-black font-semibold px-6 py-3 rounded-full transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Search className="w-5 h-5" />
+                {mode === 'ai' ? 'Analyze' : 'Search'}
+              </button>
+            )}
           </div>
         </form>
 
@@ -384,7 +417,7 @@ IMPORTANT: You MUST write your entire response in ${language}.
                     <div className="w-3 h-3 rounded-full bg-green-500/80"></div>
                     <span className="ml-2 text-gray-500 flex items-center gap-1"><Terminal className="w-3 h-3"/> root@kali:~</span>
                   </div>
-                  <span className="text-gray-500 text-xs">{subdomains.length} found</span>
+                  <span className="text-gray-500 text-xs">{subdomains.length} found | {(bytesReceived / 1024).toFixed(2)} KB scanned</span>
                 </div>
                 <div className="flex-1 flex flex-col gap-1">
                   {terminalLines.map((line, i) => (
