@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { Search, Loader2, ShieldAlert, Server, Activity, Globe, ChevronRight, Sparkles, List, History, X, Clock, Calendar, Info } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Search, Loader2, ShieldAlert, Server, Activity, Globe, ChevronRight, Sparkles, List, History, X, Clock, Calendar, Info, Filter, Languages } from 'lucide-react';
 import { GoogleGenAI } from '@google/genai';
 import Markdown from 'react-markdown';
 import { motion, AnimatePresence } from 'motion/react';
@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from 'motion/react';
 interface SubdomainItem {
   host: string;
   ip: string | null;
+  statusCode?: number | null;
 }
 
 interface WhoisInfo {
@@ -32,6 +33,7 @@ interface ScanHistory {
 export default function Page() {
   const [domain, setDomain] = useState('');
   const [mode, setMode] = useState<'standard' | 'ai'>('ai');
+  const [language, setLanguage] = useState('English');
   const [isScanning, setIsScanning] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [subdomains, setSubdomains] = useState<SubdomainItem[]>([]);
@@ -40,6 +42,20 @@ export default function Page() {
   const [error, setError] = useState<string>('');
   const [history, setHistory] = useState<ScanHistory[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [filterText, setFilterText] = useState('');
+  const [filterStatus, setFilterStatus] = useState('all');
+
+  const filteredSubdomains = useMemo(() => {
+    return subdomains.filter(sub => {
+      const matchesText = sub.host.includes(filterText.toLowerCase()) || (sub.ip && sub.ip.includes(filterText));
+      let matchesStatus = true;
+      if (filterStatus === 'resolvable') matchesStatus = !!sub.ip;
+      if (filterStatus === 'unresolvable') matchesStatus = !sub.ip;
+      if (filterStatus === 'active') matchesStatus = !!sub.statusCode && sub.statusCode >= 200 && sub.statusCode < 400;
+      if (filterStatus === 'error') matchesStatus = !!sub.statusCode && sub.statusCode >= 400;
+      return matchesText && matchesStatus;
+    });
+  }, [subdomains, filterText, filterStatus]);
 
   useEffect(() => {
     const saved = localStorage.getItem('subfinder_history');
@@ -71,10 +87,12 @@ export default function Page() {
   const loadHistoryItem = (item: ScanHistory) => {
     setDomain(item.domain);
     setMode(item.mode);
+    setFilterText('');
+    setFilterStatus('all');
     
     // Handle legacy history items where subdomains was string[]
     const loadedSubdomains = item.subdomains.map(sub => 
-      typeof sub === 'string' ? { host: sub, ip: null } : sub
+      typeof sub === 'string' ? { host: sub, ip: null, statusCode: null } : sub
     );
     
     setSubdomains(loadedSubdomains);
@@ -99,6 +117,8 @@ export default function Page() {
     setSubdomains([]);
     setAnalysis('');
     setWhois(null);
+    setFilterText('');
+    setFilterStatus('all');
     setIsScanning(true);
 
     let whoisData: WhoisInfo | null = null;
@@ -196,6 +216,7 @@ Please provide a comprehensive analysis of these subdomains:
 4. **Recommendations**: Brief actionable advice for the security team.
 
 Format the response in clean Markdown. Use headings, bullet points, and bold text for readability. Keep it professional and concise.
+IMPORTANT: You MUST write your entire response in ${language}.
       `;
 
       const response = await ai.models.generateContentStream({
@@ -320,28 +341,49 @@ Format the response in clean Markdown. Use headings, bullet points, and bold tex
           )}
         </AnimatePresence>
 
-        {/* Mode Selector */}
-        <div className="flex items-center justify-center gap-2 bg-[#141414] border border-white/10 p-1 rounded-full mx-auto w-fit">
-          <button
-            type="button"
-            onClick={() => setMode('standard')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-              mode === 'standard' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'
-            }`}
-          >
-            <List className="w-4 h-4" />
-            Standard Subfinder
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode('ai')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-              mode === 'ai' ? 'bg-emerald-500/20 text-emerald-400' : 'text-gray-500 hover:text-gray-300'
-            }`}
-          >
-            <Sparkles className="w-4 h-4" />
-            AI Enhanced
-          </button>
+        {/* Mode & Language Selector */}
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mx-auto w-full max-w-2xl">
+          <div className="flex items-center justify-center gap-2 bg-[#141414] border border-white/10 p-1 rounded-full">
+            <button
+              type="button"
+              onClick={() => setMode('standard')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                mode === 'standard' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              <List className="w-4 h-4" />
+              Standard Subfinder
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('ai')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                mode === 'ai' ? 'bg-emerald-500/20 text-emerald-400' : 'text-gray-500 hover:text-gray-300'
+              }`}
+            >
+              <Sparkles className="w-4 h-4" />
+              AI Enhanced
+            </button>
+          </div>
+
+          {mode === 'ai' && (
+            <div className="flex items-center gap-2 bg-[#141414] border border-white/10 px-4 py-2 rounded-full">
+              <Languages className="w-4 h-4 text-gray-500" />
+              <select
+                value={language}
+                onChange={(e) => setLanguage(e.target.value)}
+                className="bg-transparent border-none outline-none text-sm text-gray-300 cursor-pointer"
+                disabled={isScanning || isAnalyzing}
+              >
+                <option value="English">English</option>
+                <option value="Indonesian">Bahasa Indonesia</option>
+                <option value="Spanish">Español</option>
+                <option value="French">Français</option>
+                <option value="German">Deutsch</option>
+                <option value="Japanese">日本語</option>
+              </select>
+            </div>
+          )}
         </div>
       </div>
 
@@ -404,23 +446,63 @@ Format the response in clean Markdown. Use headings, bullet points, and bold tex
                     {subdomains.length} found
                   </span>
                 </div>
+                
+                {/* Filters */}
+                <div className="p-3 border-b border-white/10 bg-black/20 flex flex-col gap-2">
+                  <div className="relative">
+                    <Filter className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+                    <input
+                      type="text"
+                      placeholder="Filter by name or IP..."
+                      value={filterText}
+                      onChange={e => setFilterText(e.target.value)}
+                      className="w-full bg-black/50 border border-white/10 rounded-lg pl-9 pr-3 py-1.5 text-sm text-white placeholder:text-gray-600 outline-none focus:border-emerald-500/50 transition-colors"
+                    />
+                  </div>
+                  <select
+                    value={filterStatus}
+                    onChange={e => setFilterStatus(e.target.value)}
+                    className="w-full bg-black/50 border border-white/10 rounded-lg px-2 py-1.5 text-sm text-gray-300 outline-none focus:border-emerald-500/50 transition-colors"
+                  >
+                    <option value="all">All Statuses</option>
+                    <option value="resolvable">Resolvable (Has IP)</option>
+                    <option value="unresolvable">Unresolvable (No IP)</option>
+                    <option value="active">Active (HTTP 200-399)</option>
+                    <option value="error">Error (HTTP 400+)</option>
+                  </select>
+                </div>
+
                 <div className={`overflow-y-auto flex-1 p-2 custom-scrollbar ${mode === 'standard' ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 p-4' : ''}`}>
-                  {subdomains.map((sub, idx) => (
-                    <div
-                      key={idx}
-                      className="px-3 py-2 text-sm font-mono text-gray-300 hover:bg-white/5 hover:text-white rounded-lg transition-colors flex flex-col gap-1 group cursor-default border border-transparent hover:border-white/5"
-                    >
-                      <div className="flex items-center gap-2">
-                        <ChevronRight className="w-3 h-3 text-gray-600 group-hover:text-emerald-400 transition-colors shrink-0" />
-                        <span className="truncate font-medium">{sub.host}</span>
-                      </div>
-                      {sub.ip && (
-                        <div className="pl-5 text-xs text-emerald-500/70 font-mono">
-                          {sub.ip}
-                        </div>
-                      )}
+                  {filteredSubdomains.length === 0 ? (
+                    <div className="h-full flex items-center justify-center text-gray-500 text-sm">
+                      No matching subdomains found.
                     </div>
-                  ))}
+                  ) : (
+                    filteredSubdomains.map((sub, idx) => (
+                      <div
+                        key={idx}
+                        className="px-3 py-2 text-sm font-mono text-gray-300 hover:bg-white/5 hover:text-white rounded-lg transition-colors flex flex-col gap-1 group cursor-default border border-transparent hover:border-white/5"
+                      >
+                        <div className="flex items-center gap-2">
+                          <ChevronRight className="w-3 h-3 text-gray-600 group-hover:text-emerald-400 transition-colors shrink-0" />
+                          <span className="truncate font-medium">{sub.host}</span>
+                        </div>
+                        {sub.ip && (
+                          <div className="pl-5 flex items-center gap-2">
+                            <span className="text-xs text-emerald-500/70">{sub.ip}</span>
+                            {sub.statusCode && (
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded-md ${
+                                sub.statusCode >= 200 && sub.statusCode < 400 ? 'bg-emerald-500/20 text-emerald-400' :
+                                sub.statusCode >= 400 ? 'bg-red-500/20 text-red-400' : 'bg-gray-500/20 text-gray-400'
+                              }`}>
+                                HTTP {sub.statusCode}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             </div>

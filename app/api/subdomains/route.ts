@@ -60,14 +60,39 @@ export async function GET(request: Request) {
           }
           
           if (newSubdomains.length > 0) {
-            // Resolve IPs concurrently
+            // Resolve IPs and status codes concurrently
             const resolved = await Promise.all(newSubdomains.map(async (sub) => {
+              let ip: string | null = null;
+              let statusCode: number | null = null;
+              
               try {
                 const records = await dns.promises.resolve4(sub);
-                return { host: sub, ip: records[0] };
+                ip = records[0];
               } catch (e) {
-                return { host: sub, ip: null };
+                // Ignore DNS resolution errors
               }
+
+              if (ip) {
+                try {
+                  const res = await fetch(`http://${sub}`, { 
+                    method: 'HEAD', 
+                    signal: AbortSignal.timeout(2000) 
+                  });
+                  statusCode = res.status;
+                } catch (e) {
+                  try {
+                    const res = await fetch(`https://${sub}`, { 
+                      method: 'HEAD', 
+                      signal: AbortSignal.timeout(2000) 
+                    });
+                    statusCode = res.status;
+                  } catch (e2) {
+                    // Ignore fetch errors
+                  }
+                }
+              }
+
+              return { host: sub, ip, statusCode };
             }));
             controller.enqueue(encoder.encode(`data: ${JSON.stringify({ subdomains: resolved })}\n\n`));
           }
